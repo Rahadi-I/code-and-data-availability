@@ -89,8 +89,14 @@ def guided_walk_oversample(R_min, R_maj, n_new, guide, feat_eval, k=5, M=1.5, fi
 
 
 if __name__ == "__main__":
-    # the motivating example: two shifted peaks. Plain midpoint -> two half peaks; aligned midpoint -> one peak
-    t = np.arange(100); a = np.exp(-((t - 30) / 6.0) ** 2)[None]; b = np.exp(-((t - 60) / 6.0) ** 2)[None]
-    plain = 0.5 * (a + b); al = _step(a, b, 0.5, True)
-    print("plain midpoint: n peaks>0.4 =", int((np.diff(np.sign(np.diff(plain[0]))) < 0).sum()), " max =", plain.max().round(2))
-    print("aligned step  : max =", al.max().round(2), " argmax =", al[0].argmax())
+    # Reproduces the two numbers quoted in the paper (Sec. "Geometry as guidance").
+    # Both cases use a shift of 15 samples, inside the 20-sample Sakoe-Chiba band of WINDOW=0.2 on L=100.
+    t = np.arange(100)
+    v = np.exp(-((t - 30) / 6.0) ** 2)[None]                      # origin
+    for tag, n in (("identical shape, shifted only", np.exp(-((t - 45) / 6.0) ** 2)[None]),
+                   ("also lower and wider", 0.55 * np.exp(-((t - 45) / 10.0) ** 2)[None])):
+        plain = 0.5 * (v + n)
+        al = _step(v, n, 0.5, True)
+        n_peaks = int((np.diff(np.sign(np.diff(plain[0]))) < 0).sum())
+        print(f"{tag:32s} plain: {n_peaks} peaks, max {plain.max():.2f}   "
+              f"aligned: max {al.max():.2f} at t={al[0].argmax()}")
