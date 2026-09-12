@@ -32,6 +32,20 @@ Download them from https://www.timeseriesclassification.com/dataset.php (or with
 | frontier in M | `src/frontier_M.py`, `src/plot_frontier.py` | |
 | Friedman + Nemenyi critical-difference diagram, paired Wilcoxon | `src/stats_cd.py` | `METHODS="a;;b;;c"` selects methods |
 | figures | `src/make_figure*.py` | |
+| self-check of every analytical claim in the paper | `src/verify_claims.py` | ≈10 s, no data needed; prints PASS/FAIL per claim, exits non-zero on disagreement |
+
+## Checking the analytical claims first (ten seconds, no data)
+
+```bash
+cd src
+python verify_claims.py
+```
+
+Propositions 1 and 2 (closed form, and Proposition 1 again by Monte-Carlo on a simulated walk), the two
+DTW-aligned-step numbers quoted in the method section, the identity between the antisymmetric level-2
+signature and the signed Lévy area, and the two-scale debiasing of the unsigned area. The rough-path case
+of the last one is printed but deliberately **not** asserted: at H ≈ 1/2 the correction does not help, and
+Appendix B.4 of the manuscript says so.
 
 ## Reproducing the tables
 
