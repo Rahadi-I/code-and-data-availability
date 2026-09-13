@@ -1,20 +1,19 @@
 # Reproducing the paper on your own machine
 
-Windows, Anaconda. Everything below assumes the working folder `D:\thesis\paper0_all_start_here\`.
-Commands are for **Anaconda Prompt (cmd)**; PowerShell equivalents are noted where they differ.
-
 The point of this file is that you can check the findings yourself, cheapest first. If any step
 disagrees with the paper, that is a result — write it down rather than adjusting the code to match.
+
+Commands are shown for **Anaconda Prompt on Windows**; on Linux or macOS they are identical except
+for the `cd` syntax.
 
 ---
 
 ## 0. Environment
 
-```cmd
+```
 conda create -n geoover python=3.11 -y
 conda activate geoover
-pip install "numpy>=1.26" "scipy>=1.11" "pandas>=2.0" "scikit-learn>=1.4" "matplotlib>=3.8" "aeon>=1.0"
-pip install augmentdata==0.0.12
+pip install -r requirements.txt
 ```
 
 Versions used to produce the numbers in the paper:
@@ -32,166 +31,119 @@ Versions used to produce the numbers in the paper:
 **On determinism.** Every run is seeded, so with the same package versions you should get the same
 numbers to the last digit. With a different scikit-learn the random forest's internals may differ
 slightly; expect drift in the third decimal of F1, with ranks and p-values essentially unchanged.
-If you see more than that, something else is wrong.
+The cells at IR = 20 leave four minority sequences, where one sample changing sides moves F1 by
+0.17, so that is where any drift shows up first. If you see more than that, something else is wrong.
 
 ---
 
-## 1. Analytical claims — about ten seconds, no data needed
+## 1. The analytical claims — ten seconds, no data needed
 
-```cmd
-cd /d D:\thesis\paper0_all_start_here\code
+```
+cd src
 python verify_claims.py
 ```
 
-This checks the mathematics of the paper against this code and prints PASS/FAIL per claim:
+Checks the mathematics of the paper against this code and prints PASS/FAIL per claim:
 
-* Proposition 1: `L_5(1) = 0.502`, `L_5(3/2) = 1` exactly, SMOTE (`k=1`, `M=1`) retains 2/3,
-  and the non-monotonicity — `L_5` bottoms out near 0.25 at `M ≈ 0.45`.
+* Proposition 1: `L_5(1) = 0.502`, `L_5(3/2) = 1` exactly, SMOTE (`k=1`, `M=1`) retains 2/3, and the
+  non-monotonicity — `L_5` bottoms out near 0.25 at `M ≈ 0.45`.
 * Proposition 1 again, by **Monte Carlo**: a simulated walk on i.i.d. Gaussian neighbours must
   reproduce the closed form at `M = 0.8, 1.0, 1.5, 2.0`. This is the real test of the theory.
 * Proposition 2 (one shared step size, the rule in `augmentdata`): `0.473`, `0.906`, and unit
   retention at `M ≈ 1.562`.
 * The DTW-aligned step, both numbers quoted in the method section.
 * The level-2 signature's antisymmetric part equals the signed cross-product area.
-* Two-scale debiasing: it must cut the bias by more than half on a smooth path. The rough-path
-  case is printed but **not** asserted — at `H ≈ 1/2` it does not help, and the paper says so.
+* Two-scale debiasing: it must cut the bias by more than half on a smooth path. The rough-path case
+  is printed but **not** asserted — at `H ≈ 1/2` it does not help, and the paper says so.
 
 Expect `ALL CHECKS PASSED` and exit code 0.
 
-```cmd
-python aligned.py
+## 2. The quoted numbers against the shipped CSVs — seconds, no re-running
+
 ```
-prints the two DTW-aligned-step numbers on their own.
+python audit_numbers.py
+```
+
+Recomputes every quantity the manuscript quotes — both tables, ranks, paired tests, medians,
+per-dataset gains — from the CSVs in `results/` and `v08/results/`, and prints the manuscript's
+value beside the computed one. Expect `ALL QUOTED NUMBERS AGREE`.
+
+After your own run, point it at your CSVs with `--fac`, `--v06`, `--pilot`, `--frontier`, `--v08`.
 
 ---
 
-## 2. Data is in place — one minute
+## 3. Data is in place — one minute
 
-```cmd
+```
 python data.py
 ```
 
-Lists every dataset the loaders can see and its shape. You should get the 20 used in the paper:
+Lists every dataset the loaders can see and its shape. The 20 used in the paper:
 
 ArrowHead, ArticularyWordRecognition, BasicMotions, CharacterTrajectories, Cricket, ERing,
 Epilepsy, EthanolConcentration, GunPoint, HandMovementDirection, Handwriting, ItalyPowerDemand,
 JapaneseVowels, Libras, NATOPS, OSULeaf, RacketSports, SelfRegulationSCP1, SelfRegulationSCP2,
 UWaveGestureLibrary.
 
-Layout the loaders expect, all under `code\data\`:
+Layout the loaders expect, all under `src/data/`:
 
 ```
-data\<Name>\<Name>_TRAIN.ts          UEA multivariate
-data\UCRArchive_2018\<Name>\<Name>_TRAIN.tsv
-data\Monash_UEA_UCR_Regression_Archive\<Name>\<Name>_TRAIN.ts
+data/<Name>/<Name>_TRAIN.ts                              UEA multivariate
+data/UCRArchive_2018/<Name>/<Name>_TRAIN.tsv             UCR univariate
+data/Monash_UEA_UCR_Regression_Archive/<Name>/...        TSER
+data/data-download-ulang-manual/<Name>.zip               read directly
 ```
 
 ---
 
-## 3. One dataset end to end — a few minutes
+## 4. Re-running the experiments
 
-Check the pipeline runs before committing hours to it.
+One driver does all of it. No environment variables, no line continuations, no difference between
+cmd and PowerShell. Run it from `src/`.
 
-```cmd
-set SEEDS=0
-set CELLS=gpf/plain,gpf/aligned,sig/aligned
-set OUT=..\results\smoke.csv
-python run_factorial.py ItalyPowerDemand
-```
+| command | what it produces | roughly |
+|---|---|---|
+| `python run_all_local.py smoke` | one dataset, one seed — checks the pipeline runs | 1 min |
+| `python run_all_local.py main` | Table 2, Figs. 4–5 — the 20-dataset factorial | 2–4 h |
+| `python run_all_local.py stats` | Friedman + Nemenyi + Wilcoxon on the above | seconds |
+| `python run_all_local.py figures` | Fig. 1 and Fig. 4 | seconds |
+| `python run_all_local.py pilot` | Sec. 5.3 — the full 3×2 factorial on 8 datasets | ~1 h |
+| `python run_all_local.py compare` | Fig. 2, and the CSV Fig. 6 also needs | 1–2 h |
+| `python run_all_local.py gate` | Fig. 6, from the CSV `compare` produced | seconds |
+| `python run_all_local.py frontier` | Fig. 3 — its own sweep over M | 30–60 min |
+| `python run_all_local.py v08` | Sec. 5.5 — the guard and the second classifier | several h |
+| `python run_all_local.py v08nsel` | Sec. 5.5 — feature budgets 32 and 128 | ~1 h |
+| `python run_all_local.py v08trim` | Sec. 5.5 — the trimming variant of the guard | ~1 h |
+| `python run_all_local.py v08stats` | analyses the three v08 runs | seconds |
 
-PowerShell instead of `set`:
-```powershell
-$env:SEEDS="0"; $env:CELLS="gpf/plain,gpf/aligned,sig/aligned"; $env:OUT="..\results\smoke.csv"
-```
+Results are written as `repro_*.csv` so the shipped CSVs are never overwritten. Each run rewrites
+its CSV after every dataset, so you can stop with Ctrl-C and keep what is finished.
 
-One line per (seed, IR) with the F1 of each method. Delete `smoke.csv` afterwards.
-
----
-
-## 4. The headline result — roughly two to four hours
-
-The 3 × 2 factorial on all 20 datasets, three seeds. This produces the numbers in Table 2 and
-Figure 4. On two cores it took 11,620 s; your machine should be faster.
-
-```cmd
-set SEEDS=0,1,2
-set CELLS=gpf/plain,gpf/aligned,sig/aligned,dtw/aligned
-set OUT=..\results\repro_v07.csv
-python run_factorial.py ItalyPowerDemand ArrowHead GunPoint BasicMotions ERing JapaneseVowels ^
-  Libras RacketSports Epilepsy NATOPS OSULeaf Handwriting HandMovementDirection ^
-  ArticularyWordRecognition CharacterTrajectories Cricket UWaveGestureLibrary ^
-  SelfRegulationSCP1 SelfRegulationSCP2 EthanolConcentration
-```
-
-Put EthanolConcentration last — it is by far the slowest (L = 1751). The CSV is rewritten after
-every dataset, so you can inspect partial results and stop early without losing anything.
-
-Then the statistics:
-
-```cmd
-set METHODS=SMOTE-raw;;guide=gpf | walk=plain;;guide=gpf | walk=aligned;;guide=sig | walk=aligned
-python stats_cd.py ..\results\repro_v07.csv fig_cd_repro
-```
-
-**What you should see** (N = 60 dataset × IR blocks):
+**What you should see** from `main` + `stats` (N = 60 dataset × IR blocks):
 
 | method | mean rank | ΔF1 vs SMOTE | p (Wilcoxon) |
 |---|---|---|---|
-| signature-guided, aligned | 1.92 | +0.048 | 1.7e-4 |
+| signature-guided, aligned | 1.91 | +0.047 | 2.9e-4 |
 | GPF-guided, aligned | 2.26 | +0.042 | 1.4e-3 |
 | SMOTE, raw | 2.88 | — | — |
-| GPF-guided, plain | 2.95 | +0.012 | 0.79 |
+| GPF-guided, plain | 2.96 | +0.012 | 0.75 |
 
-Friedman p = 4.0e-6, Nemenyi CD = 0.61. The DTW-guided aligned cell covers only the 15 datasets
+Friedman p = 2.8e-6, Nemenyi CD = 0.61. The DTW-guided aligned cell covers only the 15 datasets
 with L ≤ 500 (it is skipped automatically on the rest): +0.072, p = 7.6e-5.
 
 The single most important comparison is **gpf/aligned versus gpf/plain**: same guidance, different
-synthesis rule, +0.030 with p = 4e-4. That isolates the DTW-aligned step from everything else.
+synthesis rule, +0.029 with p = 5.1e-4. That isolates the DTW-aligned step from everything else.
 
----
-
-## 5. Robustness — the v0.8 folder
-
-```cmd
-cd /d D:\thesis\paper0_all_start_here\v08
-set SEEDS=0,1,2
-set CLFS=rf,ridge
-set N_SELECT=64
-set GUARD=1
-set CELLS=gpf/plain,gpf/aligned,sig/aligned
-set OUT=results\repro_v08.csv
-python run_v08.py <the same 20 dataset names>
-python analyse_v08.py
-```
-
-Three things at once: the second classifier, the feature budget, and the dispersion guard. The
-guard is a **negative result** — it caps the dispersion (373 → 2 on EthanolConcentration) and
-improves admissibility, yet leaves F1 unchanged (+0.006, p = 0.49). If your run shows the guard
-helping, that contradicts the paper and I would want to know.
-
-For the feature budget, repeat with `set N_SELECT=32` and `set N_SELECT=128` on the eight pilot
-datasets (ArticularyWordRecognition, Epilepsy, NATOPS, OSULeaf, GunPoint, Handwriting,
-JapaneseVowels, RacketSports).
-
----
-
-## 6. Figures
-
-```cmd
-cd /d D:\thesis\paper0_all_start_here\code
-python make_figure1.py                                     # framework diagram
-python make_figure_factorial20.py ..\results\repro_v07.csv fig_factorial_repro
-python make_figure_v04.py ..\results\results_v05_standard.csv fig_overview_repro
-python plot_frontier.py                                    # needs results\frontier_M.csv
-```
-
-Set `PAPER=1` before the last two to drop the on-figure titles, as in the manuscript.
+From `v08` + `v08stats`, the guard is a **negative result** — it caps the dispersion (373 → 2 on
+EthanolConcentration) and improves admissibility, yet leaves F1 unchanged (+0.006, p = 0.49). If
+your run shows the guard helping, that contradicts the paper and we would want to know.
 
 ---
 
 ## If something disagrees
 
-Send me the CSV and the console output. Three numbers in the manuscript have already been
-corrected this way — a peak height that no configuration reproduced, a unit-retention point that
-was 1.55 instead of 1.562, and a claim that the debiasing removes the noise floor when on rough
-paths it does not. Finding a fourth would be a good outcome, not an embarrassing one.
+Open an issue with the CSV and the console output. Several numbers in the manuscript were corrected
+this way before submission — a peak height that no configuration reproduced, a unit-retention point
+that was 1.55 instead of 1.562, three mean-F1 values in the pilot section, a dispersion median that
+read 2.25 where the data gives 1.70, and a claim that two-scale debiasing removes the noise floor
+when on rough paths it does not. Finding another would be a good outcome, not an embarrassing one.

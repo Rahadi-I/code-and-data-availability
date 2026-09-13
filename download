@@ -1,0 +1,7 @@
+src/data/
+*.pyc
+__pycache__/
+*.log
+*.aux
+*.out
+*.synctex.gz
