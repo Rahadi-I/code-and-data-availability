@@ -4,6 +4,7 @@ continuations, no PowerShell/cmd differences -- just:
 
     python run_all_local.py smoke      step 3: one dataset, one seed, a few minutes
     python run_all_local.py main       step 4: the 20-dataset factorial, 2-4 hours
+    python run_all_local.py pilot      Sec. 5.3: the full 3x2 factorial on the 8 pilot datasets
     python run_all_local.py stats      step 4b: Friedman + Nemenyi + Wilcoxon on the CSV from `main`
     python run_all_local.py figures    step 6: Fig. 1 and Fig. 4 from the CSV `main` produced
     python run_all_local.py compare    Fig. 2  -- a separate experiment (run_experiment.py), 1-2 h
@@ -263,6 +264,13 @@ if __name__ == "__main__":
     elif what == "main":
         factorial(DATASETS, MAIN_CSV, seeds="0,1,2",
                   cells="gpf/plain,gpf/aligned,sig/aligned,dtw/aligned")
+
+    elif what == "pilot":
+        # Sec. 5.3 "Pilot on eight datasets": the FULL 3x2 factorial -- all six cells, including the
+        # plain variants of the signature and DTW guidance that the 20-dataset run drops. Those
+        # numbers cannot be recovered from the confirmatory CSV, so this is its own run.
+        factorial(PILOT8, os.path.join("..", "results", "repro_v07_pilot.csv"), seeds="0,1,2",
+                  cells="gpf/plain,gpf/aligned,sig/plain,sig/aligned,dtw/plain,dtw/aligned")
 
     elif what == "stats":
         stats(MAIN_CSV)

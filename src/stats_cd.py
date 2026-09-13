@@ -56,6 +56,8 @@ for i in range(k):
     while j + 1 < k and sorted_r[j + 1] - sorted_r[i] <= CD: j += 1
     if j > i and not any(a <= i and b >= j for a, b in drawn):
         ax.plot([sorted_r[i] - 0.04, sorted_r[j] + 0.04], [yb, yb], color="black", lw=3, solid_capstyle="butt"); yb -= 0.12; drawn.append((i, j))
-ax.set_title(f"Critical-difference diagram, F1 (minority) · N = {N} dataset×IR blocks · IR ∈ {{{', '.join(map(str, IRsel))}}} · Friedman p = {p:.1e}", fontsize=9.5)
+PANEL = os.environ.get("PANEL", "")          # e.g. PANEL=D -> "D.  Critical-difference diagram ..." when the diagram is a panel of a larger figure
+ax.set_title((f"{PANEL}.  " if PANEL else "") + f"Critical-difference diagram, F1 (minority) · N = {N} dataset×IR blocks · IR ∈ {{{', '.join(map(str, IRsel))}}} · Friedman p = {p:.1e}",
+             fontsize=9.5, weight="bold" if PANEL else "normal", loc="left" if PANEL else "center")
 fig.savefig(f"results/{out}.png", dpi=170, bbox_inches="tight"); fig.savefig(f"results/{out}.pdf", bbox_inches="tight")
 print("saved", out)
