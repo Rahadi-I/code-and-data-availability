@@ -1,82 +1,94 @@
-"""Fig. 1 of the paper: the problem (A-C), the closed-form contraction in M (D), the validity gate (E) and the pipeline (F)."""
-import numpy as np, matplotlib
+"""Fig. 1: the proposed framework. Greyscale only, so the figure reads in print.
+
+Faithful to the implementation (aligned.guided_walk_oversample + knnor.calibrate_M):
+  * the guidance space supplies neighbours, the origin filter and the purity vote — nothing else;
+  * the step bound M* is calibrated apart from it, in phi_GPF, and shared by every guidance space,
+    so it enters the synthesis stage from above;
+  * the validity gate is a pre-check, so it sits before the geometric space;
+  * the diagnostics are measured on the accepted synthetic set, so they leave the synthesis stage below.
+Short labels only; detail belongs in the caption.
+"""
+import matplotlib
 matplotlib.use("Agg"); import matplotlib.pyplot as plt
-from matplotlib.patches import FancyBboxPatch
-from knnor import L_k, L_k_shared_alpha
+from matplotlib.patches import FancyBboxPatch, Polygon
 
-plt.rcParams.update({"font.size": 9, "axes.spines.top": False, "axes.spines.right": False})
-fig, ax = plt.subplots(2, 3, figsize=(14, 9)); fig.subplots_adjust(wspace=0.32, hspace=0.42)
-BLUE, GREEN, ORANGE, NAVY, GREY = "#2a78d6", "#1baf7a", "#eb6834", "#1f3a5f", "#777"
+INK, MID_GREY, HAIR = "#1a1a1a", "#5f5f5f", "#b8b8b8"
+F_SYN, F_CHIP, F_AUX = "#e9e9e9", "#f4f4f4", "#f4f4f4"
+plt.rcParams.update({"font.size": 10})
 
-# A. raw-space interpolation of two shifted peaks
-a = ax[0, 0]; t = np.arange(101)
-x1 = np.exp(-((t - 32) / 8) ** 2); x2 = np.exp(-((t - 62) / 8) ** 2)
-a.plot(t, x1, color=BLUE, lw=2, label="minority sample 1"); a.plot(t, x2, color=GREEN, lw=2, label="minority sample 2")
-a.plot(t, 0.5 * (x1 + x2), "--", color=ORANGE, lw=2, label="convex midpoint (SMOTE / KNNOR)")
-a.annotate("two half-peaks:\nno physical counterpart", (63, 0.5), xytext=(74, 0.72), fontsize=8, color="#444",
-           arrowprops=dict(arrowstyle="-", color="#777"), ha="left"); a.set_ylim(0, 1.5)
-a.set_xlabel("time"); a.set_ylabel("value"); a.legend(fontsize=7.5, frameon=False, loc="upper left")
-a.set_title("A.  Raw-space interpolation of misaligned series", loc="left", weight="bold", fontsize=9.5)
+fig, ax = plt.subplots(figsize=(13.4, 6.4))
+ax.set_xlim(0, 136); ax.set_ylim(0, 68); ax.axis("off")
 
-# B. path space: same loop shifted in phase
-b = ax[0, 1]; th = np.linspace(0, 2 * np.pi, 200)
-b.plot(np.cos(th), 0.6 * np.sin(th), color=BLUE, lw=2, label="path 1 (a loop)")
-b.plot(np.cos(th), 0.6 * np.sin(th), "--", color=GREEN, lw=2, dashes=(4, 3), label="path 2 = same loop, phase-shifted")
-ph = 2 * np.pi / 3; m = 0.5 * (np.c_[np.cos(th), 0.6 * np.sin(th)] + np.c_[np.cos(th + ph), 0.6 * np.sin(th + ph)])
-b.fill(m[:, 0], m[:, 1], color=ORANGE, alpha=0.2); b.plot(m[:, 0], m[:, 1], color=ORANGE, lw=2, label="pointwise mean of the two paths")
-b.text(0, -0.95, "area of the mean path = 25% of the true area\nmean of the two signed areas = 100%", ha="center", fontsize=8, color="#444")
-b.set_xlim(-1.35, 1.35); b.set_ylim(-1.15, 1.05); b.set_aspect("equal"); b.set_xlabel("channel 1"); b.set_ylabel("channel 2")
-b.legend(fontsize=7.5, frameon=False, loc="upper center", bbox_to_anchor=(0.5, 1.02))
-b.set_title("B.  In path space the same loop is one point,\n     but the mean of the paths is not", loc="left", weight="bold", fontsize=9.5)
+Y, H = 22, 30
+MID = Y + H / 2                      # the axis every in/out arrow sits on
 
-# C. variance retained vs k for each convex rule
-c = ax[0, 2]; ks = np.arange(1, 9)
-c.axhline(1, color=GREY, lw=0.8, ls=":")
-c.plot(ks, [L_k(1.5, k) for k in ks], "-o", color=GREEN, ms=4, lw=2, label="KNNOR, M = 3/2 (calibrated)")
-c.plot(ks, [2 / 3] * len(ks), "-o", color=BLUE, ms=4, lw=2, label="SMOTE (k = 1 case)")
-c.plot(ks, [L_k(1.0, k) for k in ks], "-o", color=ORANGE, ms=4, lw=2, label="KNNOR, M = 1 (default bound)")
-c.plot(ks, [1 / k for k in ks], "-s", color=NAVY, ms=4, lw=2, label="chain mean of k (PSSTO-style)")
-c.set_xlabel("neighbours visited, k"); c.set_ylabel("variance retained  tr Cov(syn) / tr Cov(real)"); c.set_ylim(0, 1.55)
-c.legend(fontsize=7.5, frameon=False, loc="upper right")
-c.set_title("C.  Every convex rule contracts the minority", loc="left", weight="bold", fontsize=9.5)
 
-# D. closed form in M: i.i.d. alpha vs shared alpha (reference implementation), k = 5
-d = ax[1, 0]; Ms = np.linspace(0.3, 2.4, 120)
-d.axhline(1, color=GREY, lw=0.8, ls=":")
-d.plot(Ms, [L_k(M, 5) for M in Ms], color=BLUE, lw=2, label="independent step sizes, $L_5(M)$")
-d.plot(Ms, [L_k_shared_alpha(M, 5, n=20001) for M in Ms], color=ORANGE, lw=2, label="one shared step size, $L_5^{\\mathrm{sh}}(M)$")
-d.axvline(1.0, color=GREY, lw=0.8, ls="--"); d.axvline(1.5, color=GREY, lw=0.8, ls="--"); d.axvline(1.55, color=GREY, lw=0.8, ls="--")
-d.scatter([1.0, 1.0], [L_k(1.0, 5), L_k_shared_alpha(1.0, 5)], color=[BLUE, ORANGE], zorder=3, s=30)
-d.text(0.97, 1.25, "M = 1\n(default)", ha="right", fontsize=7.5, color="#444"); d.text(1.58, 0.12, "M = 3/2 and M ≈ 1.55:\nfull variance retained", ha="left", fontsize=7.5, color="#444")
-d.text(0.96, L_k(1.0, 5) + 0.07, f"{L_k(1.0, 5):.2f}", fontsize=7.5, color=BLUE, ha="right"); d.text(0.96, L_k_shared_alpha(1.0, 5) - 0.16, f"{L_k_shared_alpha(1.0, 5):.2f}", fontsize=7.5, color=ORANGE, ha="right")
-d.set_xlabel("step bound M"); d.set_ylabel("variance retained, k = 5"); d.set_ylim(0, 2.1)
-d.legend(fontsize=7.5, frameon=False, loc="upper left")
-d.set_title("D.  The contraction has a closed form in M", loc="left", weight="bold", fontsize=9.5)
+def stage(x, y, w, h, title, chips=(), fc="white", tfs=10.5, cfs=8.8, lw=1.7):
+    ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.5,rounding_size=1.4",
+                                fc=fc, ec=INK, lw=lw, zorder=2))
+    ax.text(x + w / 2, y + h - (4.4 if chips else h / 2), title,
+            ha="center", va="center", fontsize=tfs, weight="bold", color=INK, zorder=3)
+    n = len(chips)
+    for i, c in enumerate(chips):
+        if n == 1:                                   # single chip: centre it on the flow axis
+            cy = y + h / 2
+        else:
+            lo, hi = y + 3.4, y + h - 8.8
+            cy = (lo + hi) / 2 + (n - 1) * 5.9 / 2 - i * 5.9
+        ax.add_patch(FancyBboxPatch((x + 2.5, cy - 2.15), w - 5.0, 4.3,
+                                    boxstyle="round,pad=0.25,rounding_size=0.8",
+                                    fc=F_CHIP, ec=HAIR, lw=0.9, zorder=3))
+        ax.text(x + w / 2, cy, c, ha="center", va="center", fontsize=cfs, color=INK, zorder=4)
 
-# E. roughness gate
-e = ax[1, 1]; w = np.array([4, 8, 16, 32, 64, 128]); rng = np.random.default_rng(0)
-e.loglog(w, (w / 4) ** 0.98, "-o", color=GREEN, lw=2, ms=4, label="smooth path: H = 0.98"); e.loglog(w, (w / 4) ** 0.48, "-o", color=ORANGE, lw=2, ms=4, label="diffusive path: H = 0.48")
-e.text(11, 11, "features carry\nthe shape", color=GREEN, fontsize=8, ha="left"); e.text(45, 1.6, "features are\nnoise-dominated", color=ORANGE, fontsize=8, ha="left")
-e.set_xlabel("lag w"); e.set_ylabel("mean chord  |X(t+w) − X(t)|, normalised"); e.legend(fontsize=7.5, frameon=False, loc="upper left")
-e.set_title("E.  Roughness exponent H as a validity gate", loc="left", weight="bold", fontsize=9.5)
 
-# F. pipeline: guidance vs synthesis
-f = ax[1, 2]; f.axis("off"); f.set_xlim(0, 10); f.set_ylim(0, 10)
-def box(x, y, w, h, text, fc="#eef2f7", ec=NAVY, bold=False):
-    f.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.05,rounding_size=0.2", fc=fc, ec=ec, lw=1.2))
-    f.text(x + w / 2, y + h / 2, text, ha="center", va="center", fontsize=6.9, weight="bold" if bold else "normal")
-def arrow(x0, y0, x1, y1): f.annotate("", (x1, y1), (x0, y0), arrowprops=dict(arrowstyle="->", color="#555", lw=1))
-box(1.0, 8.6, 8.0, 1.1, "imbalanced multivariate time series")
-f.text(2.5, 7.85, "GUIDANCE\n(geometric space)", ha="center", va="center", fontsize=6.8, weight="bold", color=GREEN)
-f.text(7.5, 7.85, "SYNTHESIS\n(raw space)", ha="center", va="center", fontsize=6.8, weight="bold", color=BLUE)
-box(0.1, 6.1, 4.7, 1.2, "neighbours + origin filter in\nsignature / GPF / DTW space", fc="#e6f7ef", ec=GREEN)
-box(0.1, 4.5, 4.7, 1.2, "step bound M* calibrated\n(dispersion → 1), local α", fc="#e6f7ef", ec=GREEN)
-box(0.1, 2.9, 4.7, 1.2, "purity vote\n(acceptance reported)", fc="#e6f7ef", ec=GREEN)
-box(5.3, 4.5, 4.5, 2.8, "k-step convex walk on\nraw sequences, each step\nDTW-aligned\n→ admissible", fc="#e9f1fb", ec=BLUE, bold=False)
-box(5.3, 2.9, 4.5, 1.2, "classifier on real +\nsynthetic sequences", fc="#eef2f7")
-box(1.0, 0.6, 8.0, 1.5, "reported: dispersion, MMD, Brier / ECE, acceptance;\ngate: class signal of the guiding space")
-arrow(3.0, 8.6, 2.5, 8.25); arrow(7.0, 8.6, 7.5, 8.25); arrow(4.8, 6.7, 5.3, 6.4); arrow(4.8, 5.1, 5.3, 5.4); arrow(4.8, 3.5, 5.3, 3.5)
-arrow(7.5, 4.5, 7.5, 4.1); arrow(7.5, 2.9, 7.5, 2.1)
-f.set_title("F.  Geometry guides, raw space synthesises", loc="left", weight="bold", fontsize=9.5)
+def arrow(p0, p1, lw=1.9, ls="-", color=INK):
+    ax.annotate("", p1, p0, zorder=1,
+                arrowprops=dict(arrowstyle="-|>", color=color, lw=lw, linestyle=ls,
+                                shrinkA=0, shrinkB=0, mutation_scale=17))
 
-fig.savefig("results/fig1_problem_plan.pdf", bbox_inches="tight"); fig.savefig("results/fig1_problem_plan.png", dpi=170, bbox_inches="tight"); print("saved")
+
+# ---- main flow -------------------------------------------------------------
+stage(1, Y + 9, 15, 12, "Imbalanced\ntime series", tfs=10.2)
+
+gx, gy, gw, gh = 19.5, MID - 8, 16, 16
+ax.add_patch(Polygon([(gx + gw / 2, gy + gh), (gx + gw, gy + gh / 2), (gx + gw / 2, gy), (gx, gy + gh / 2)],
+                     closed=True, fc="white", ec=INK, lw=1.7, zorder=2))
+ax.text(gx + gw / 2, gy + gh / 2, "validity\ngate", ha="center", va="center",
+        fontsize=9.6, weight="bold", color=INK, zorder=3)
+
+stage(39, Y, 25, H, "Geometric space", ("cross-product areas", "path signature", "DTW distance"))
+stage(69, Y, 25, H, "Guided selection", ("neighbours", "origin filter", "purity vote"))
+stage(99, Y, 22, H, "Raw-space\nsynthesis", ("DTW-aligned\nconvex walk",), fc=F_SYN)
+stage(126, Y + 9, 9.5, 12, "Balanced\nset", tfs=10.2)
+
+for a, b in ((16, 19.5), (35.5, 39), (64, 69), (94, 99), (121, 126)):
+    arrow((a, MID), (b, MID))
+
+# ---- guidance bracket, below the two guidance boxes ------------------------
+ax.plot([39, 94], [19, 19], color=INK, lw=1.1)
+ax.plot([39, 39], [19, 20.6], color=INK, lw=1.1); ax.plot([94, 94], [19, 20.6], color=INK, lw=1.1)
+ax.text(66.5, 16.6, "guidance   —   no synthetic point is created here",
+        ha="center", va="top", fontsize=9.4, style="italic", color=INK)
+
+ax.text(gx + gw / 2, gy - 2.4, "is the geometric space\nmore informative than\nthe raw space?",
+        ha="center", va="top", fontsize=8.2, color=MID_GREY)
+
+# ---- M* in from above, diagnostics out below: one vertical axis ------------
+CX = 99 + 11                                   # centre of the synthesis box
+ax.add_patch(FancyBboxPatch((CX - 17, 57.5), 34, 9.0, boxstyle="round,pad=0.5,rounding_size=1.2",
+                            fc="white", ec=INK, lw=1.3, zorder=2))
+ax.text(CX, 64.0, "step bound $M^{\\ast}$", ha="center", va="center", fontsize=9.4, weight="bold", color=INK, zorder=3)
+ax.text(CX, 60.1, "calibrated so the walk preserves\nthe minority covariance",
+        ha="center", va="center", fontsize=8.3, color=INK, zorder=3)
+arrow((CX, 57.5), (CX, Y + H + 0.6))
+
+ax.add_patch(FancyBboxPatch((CX - 17, 4.0), 34, 9.0, boxstyle="round,pad=0.5,rounding_size=1.2",
+                            fc=F_AUX, ec=MID_GREY, lw=1.2, zorder=2))
+ax.text(CX, 10.5, "reported every run", ha="center", va="center", fontsize=9.4, weight="bold", color=INK, zorder=3)
+ax.text(CX, 6.6, "dispersion · admissibility\ncalibration · acceptance",
+        ha="center", va="center", fontsize=8.3, color=INK, zorder=3)
+arrow((CX, Y - 0.6), (CX, 13.0), lw=1.4, ls="--", color=MID_GREY)
+
+fig.savefig("results/fig1_framework.pdf", bbox_inches="tight")
+fig.savefig("results/fig1_framework.png", dpi=190, bbox_inches="tight")
+print("saved")
