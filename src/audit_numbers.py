@@ -14,11 +14,10 @@ p-value that moves from 1.7e-4 to 2.9e-4 is the same finding while 1e-4 to 0.3 i
 """
 import os, sys, argparse, math
 import numpy as np, pandas as pd
-from scipy.stats import wilcoxon, friedmanchisquare
+from scipy.stats import wilcoxon, friedmanchisquare, spearmanr
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.chdir(HERE)
-R = os.path.join("..", "results")
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--mine", action="store_true", help="use the repro_* CSVs instead of the published ones")
@@ -26,18 +25,34 @@ ap.add_argument("--fac"); ap.add_argument("--v06"); ap.add_argument("--pilot")
 ap.add_argument("--frontier"); ap.add_argument("--v08")
 A = ap.parse_args()
 
+# The released repository keeps results/ and v08/ beside src/; a working copy keeps results/
+# inside the code directory. Look in both rather than assuming one, so the same command works
+# in either layout -- a wrong path used to skip a whole block and still print a clean bill.
+ROOTS = ["results", os.path.join("..", "results"), ".",
+         os.path.join("v08", "results"), os.path.join("..", "v08", "results")]
+
+
+def find(name):
+    for r in ROOTS:
+        q = os.path.join(r, name)
+        if os.path.exists(q):
+            return q
+    return os.path.join(ROOTS[0], name)          # not found: kept for the error message
+
+
 if A.mine:
-    P = dict(fac=f"{R}/repro_v07.csv", v06=f"{R}/repro_v06.csv", pilot=f"{R}/repro_v07_pilot.csv",
-             frontier="results/frontier_M.csv", v08="../v08/results/repro_v08_main.csv")
+    P = dict(fac=find("repro_v07.csv"), v06=find("repro_v06.csv"), pilot=find("repro_v07_pilot.csv"),
+             frontier=find("frontier_M.csv"), v08=find("repro_v08_main.csv"))
 else:
-    P = dict(fac="results/results_v07_factorial_all.csv", v06="results/results_v06_official_all.csv",
-             pilot="results/results_v07_factorial.csv", frontier="results/frontier_M.csv",
-             v08="../v08/results/results_v08_main.csv")
+    P = dict(fac=find("results_v07_factorial_all.csv"), v06=find("results_v06_official_all.csv"),
+             pilot=find("results_v07_factorial.csv"), frontier=find("frontier_M.csv"),
+             v08=find("results_v08_main.csv"))
 for k, v in (("fac", A.fac), ("v06", A.v06), ("pilot", A.pilot), ("frontier", A.frontier), ("v08", A.v08)):
     if v:
         P[k] = v
 
 nbad = 0
+nskip = []
 
 
 def chk(label, paper, got, tol=0.01, kind="num"):
@@ -58,7 +73,8 @@ def chk(label, paper, got, tol=0.01, kind="num"):
 def load(key):
     p = P[key]
     if not os.path.exists(p):
-        print(f"  [{key}] {p} not found -- block skipped")
+        print(f"  [{key}] {p} not found -- BLOCK SKIPPED, nothing in it was checked")
+        nskip.append(key)
         return None
     print(f"  [{key}] {p}")
     return pd.read_csv(p)
@@ -159,6 +175,51 @@ if d is not None:
     for ds, v in (("SelfRegulationSCP1", 0.31), ("ArticularyWordRecognition", 0.22),
                   ("UWaveGestureLibrary", 0.15), ("NATOPS", 0.14)):
         chk(f"IR10-20 gain, {ds}", v, gain.get(ds), 0.03)
+
+    # Sec. 5.5 and Sec. 5.6: the gate as a withholding rule. Declining every dataset with a
+    # negative gate forgoes more gain than it avoids loss, because the three MOST negative
+    # gates all gain -- the relation is not monotone, so no threshold rescues the rule.
+    # If these two totals ever cross, the sentence in Sec. 5.5 must be rewritten.
+    # The gate is F1(GPF features) - F1(raw flattened), both without oversampling. Those two
+    # cells live in the main-comparison CSV, so the gate is recomputed from the same run as
+    # everything else rather than from a separate file: nothing here depends on a CSV that is
+    # not in the repository. (Computed from the v05 run instead, it agrees to four decimals on
+    # all twenty datasets, with no sign change.)
+    gate_csv = P["v06"]
+    if os.path.exists(gate_csv):
+        d5 = pd.read_csv(gate_csv)
+        gate = (d5[d5.method == "none"].groupby("dataset").f1.mean()
+                - d5[d5.method == "none (raw-flat RF)"].groupby("dataset").f1.mean())
+        j = pd.concat([gate.rename("gate"), gain.rename("gain")], axis=1).dropna()
+        neg = j[j.gate < 0]
+        chk("gate<0: gain forgone by withholding", 0.27, float(neg[neg.gain > 0].gain.sum()), 0.03)
+        chk("gate<0: loss avoided by withholding", -0.14, float(neg[neg.gain < 0].gain.sum()), 0.03)
+        rho, pv_ = spearmanr(j.gate, j.gain)
+        chk("Sec 5.6 Spearman rho, gate vs gain", 0.16, float(rho), 0.03)
+        chk("Sec 5.6 Spearman p", 0.50, float(pv_), 0.08)
+        hi_, lo_ = j[j.gate >= 0.05], j[j.gate < 0.05]
+        chk("Sec 5.6 mean gain, gate >= 0.05", 0.065, float(hi_.gain.mean()), 0.01)
+        chk("Sec 5.6 mean gain, gate <  0.05", 0.039, float(lo_.gain.mean()), 0.01)
+        worst3 = j.nsmallest(3, "gate")
+        chk("three most negative gates all gain", 3.0, float((worst3.gain > 0).sum()), 0.0)
+        chk("losses with a negative gate (paper: two)", 2.0,
+            float(((j.gain < 0) & (j.gate < 0)).sum()), 0.0)
+    else:
+        print(f"  {'gate arithmetic':52s} SKIPPED -- {gate_csv} not found")
+        nskip.append("v05 (gate)")
+
+    # Cricket, Sec. 5.2 and Sec. 5.5: the gate is computed on phi_GPF, and the GPF-guided walk
+    # gains there. What loses is the signature-guided walk. Both numbers are quoted, so both
+    # are checked -- if they ever cross, the argument in Sec. 5.5 stops holding.
+    gain_gpf = (pv[GA] - pv[SM])
+    chk("IR10-20 gain, Cricket, GPF-guided", 0.12, gain_gpf.get("Cricket"), 0.03)
+    cri = d[(d.dataset == "Cricket") & (d.IR == 20)].pivot_table(
+        index="seed", columns="method", values="f1", aggfunc="mean")
+    for meth, label, want in ((SM, "SMOTE", [0.67, 0.29, 0.60]),
+                              (SA, "signature-guided", [0.50, 0.29, 0.67])):
+        got = sorted(cri[meth].tolist()) if meth in cri else []
+        chk(f"Cricket IR20 seeds, {label}", sum(want) / 3,
+            sum(got) / len(got) if got else None, 0.02)
 
 # ============================================================ Sec. 5.2 + Table 1 (main comparison)
 print("\n" + "=" * 104)
@@ -270,6 +331,13 @@ if d8 is not None:
         chk("EthanolConcentration, dMMD", -0.154, float((et.mmd_syn_g - et.mmd_syn_b).mean()), 0.03)
 
 print("\n" + "=" * 104)
-print("ALL QUOTED NUMBERS AGREE" if nbad == 0 else f"{nbad} value(s) differ from the manuscript -- see MISMATCH above")
+if nskip:
+    print(f"INCOMPLETE: {len(nskip)} block(s) could not be checked -- {', '.join(nskip)}")
+    print("Nothing below those headings was verified. Fetch the missing CSVs before reading anything")
+    print("into the result; a clean report over a missing file says nothing at all.")
+elif nbad == 0:
+    print("ALL QUOTED NUMBERS AGREE")
+if nbad:
+    print(f"{nbad} value(s) differ from the manuscript -- see MISMATCH above")
 print("=" * 104)
-raise SystemExit(0 if nbad == 0 else 1)
+raise SystemExit(0 if (nbad == 0 and not nskip) else 1)

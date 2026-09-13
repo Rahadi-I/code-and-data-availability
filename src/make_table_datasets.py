@@ -9,8 +9,18 @@ DS = ["ArrowHead", "ArticularyWordRecognition", "BasicMotions", "CharacterTrajec
       "UWaveGestureLibrary"]
 UNIV = {"ArrowHead", "GunPoint", "ItalyPowerDemand", "OSULeaf"}
 
-# class signal of the guiding space, from the v0.5 run: F1(GPF features, no oversampling) - F1(raw flattened, no oversampling)
-d = pd.read_csv("results/results_v05_standard.csv")
+# Class signal of the guiding space: F1(GPF features, no oversampling) - F1(raw flattened,
+# no oversampling). Both cells are in the main-comparison CSV, so the Signal column comes from
+# the same run as the rest of the paper. Look for it in either layout (repo: ../results).
+import os
+_cand = [os.path.join(r, n) for r in ("results", os.path.join("..", "results"))
+         for n in ("repro_v06.csv", "results_v06_official_all.csv", "results_v05_standard.csv")]
+_csv = next((c for c in _cand if os.path.exists(c)), None)
+if _csv is None:
+    raise SystemExit("no CSV with the 'none' and 'none (raw-flat RF)' cells found; looked in "
+                     + ", ".join(_cand))
+print(f"[signal] {_csv}")
+d = pd.read_csv(_csv)
 g = d[d.method == "none"].groupby("dataset").f1.mean()
 r = d[d.method == "none (raw-flat RF)"].groupby("dataset").f1.mean()
 signal = (g - r)
