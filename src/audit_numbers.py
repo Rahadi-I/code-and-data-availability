@@ -32,12 +32,34 @@ ROOTS = ["results", os.path.join("..", "results"), ".",
          os.path.join("v08", "results"), os.path.join("..", "v08", "results")]
 
 
+# published name  <->  the name the same data carries after a local re-run
+TWIN = {"results_v07_factorial_all.csv": "repro_v07.csv",
+        "results_v06_official_all.csv": "repro_v06.csv",
+        "results_v07_factorial.csv": "repro_v07_pilot.csv",
+        "results_v08_main.csv": "repro_v08_main.csv"}
+TWIN.update({v: k for k, v in TWIN.items()})
+
+
 def find(name):
     for r in ROOTS:
         q = os.path.join(r, name)
         if os.path.exists(q):
             return q
     return os.path.join(ROOTS[0], name)          # not found: kept for the error message
+
+
+def twin_of(name):
+    """The same data under its other name, if that file is the one actually on disk. Running
+    without --mine in a folder that holds only repro_* CSVs used to skip three blocks with no
+    hint as to why; the block header now says which flag would have found them."""
+    other = TWIN.get(os.path.basename(name))
+    if not other:
+        return None
+    for r in ROOTS:
+        q = os.path.join(r, other)
+        if os.path.exists(q):
+            return q
+    return None
 
 
 if A.mine:
@@ -74,6 +96,11 @@ def load(key):
     p = P[key]
     if not os.path.exists(p):
         print(f"  [{key}] {p} not found -- BLOCK SKIPPED, nothing in it was checked")
+        alt = twin_of(p)
+        if alt:
+            flag = "without --mine" if A.mine else "with --mine"
+            print(f"           but {alt} is here: re-run {flag}. Mixing the two is worse than"
+                  f" either, because the manuscript quotes one run, not a blend of both.")
         nskip.append(key)
         return None
     print(f"  [{key}] {p}")
