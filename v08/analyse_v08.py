@@ -1,10 +1,19 @@
-"""Analysis of the v0.8 run: (1) the dispersion guard, (2) the second classifier, (3) the feature budget."""
-import sys, numpy as np, pandas as pd
+"""Analysis of the v0.8 run: (1) the dispersion guard, (2) the second classifier, (3) the feature
+budget, and (4) the trimming variant of the guard.
+
+Reads the CSVs of the published run by default. To analyse your own reproduction instead, set
+V08_MAIN / V08_NSEL32 / V08_NSEL128 / V08_TRIM -- `run_all_local.py v08stats` does that for you."""
+import os, sys, numpy as np, pandas as pd
 from scipy.stats import wilcoxon, friedmanchisquare
+
+MAIN = os.environ.get("V08_MAIN", "results/results_v08_main.csv")
+NSEL = {n: os.environ.get(f"V08_NSEL{n}", f"results/results_v08_nsel{n}.csv") for n in (32, 128)}
+TRIM = os.environ.get("V08_TRIM", "results/results_v08_trim.csv")
 
 M = ["SMOTE-raw", "guide=gpf | walk=plain", "guide=gpf | walk=aligned", "guide=sig | walk=aligned"]
 SH = {m: m.replace("guide=", "").replace(" | walk=", "/") for m in M}
-d = pd.read_csv("results/results_v08_main.csv")
+print(f"main CSV: {MAIN}")
+d = pd.read_csv(MAIN)
 base = d[d.guard.fillna(0) == 0]
 
 print(f"=== datasets: {d.dataset.nunique()}  seeds: {sorted(d.seed.unique())} ===\n")
@@ -26,7 +35,14 @@ for c in ["rf", "ridge"]:
 
 # ---------- 2. dispersion guard ----------
 print("\n--- (2) dispersion guard (tau = 2) ---")
-g = d[(d.guard.fillna(0) == 1)].copy(); g["base_m"] = g.method.str.replace(" | guard", "", regex=False)
+# The guarded cells are named "... | guard" by the original run and "... | guard-<mode>" by the
+# current one (GUARDMODE gained a suffix later). Strip either, and keep only the shrink mode --
+# section (4) is where trim is analysed.
+GUARD_SUFFIX = r" \| guard(?:-\w+)?$"
+g = d[d.guard.fillna(0) == 1].copy()
+if "guard_mode" in g.columns and g.guard_mode.notna().any():
+    g = g[g.guard_mode.fillna("shrink") == "shrink"]
+g["base_m"] = g.method.str.replace(GUARD_SUFFIX, "", regex=True)
 b = d[d.guard.fillna(0) == 0]
 j = g.merge(b[["dataset", "seed", "IR", "method", "clf", "f1", "gmean", "mmd_syn"]],
             left_on=["dataset", "seed", "IR", "base_m", "clf"], right_on=["dataset", "seed", "IR", "method", "clf"],
@@ -48,7 +64,9 @@ if len(f):
 # guarded method vs SMOTE, head to head
 print("\n  ranking with the guarded aligned cells (rf):")
 dd = d[d.clf == "rf"].copy()
-dd["m2"] = dd.method
+if "guard_mode" in dd.columns:
+    dd = dd[(dd.guard.fillna(0) == 0) | (dd.guard_mode.fillna("shrink") == "shrink")]
+dd["m2"] = dd.method.str.replace(GUARD_SUFFIX, " | guard", regex=True)   # one name for either run
 sel = ["SMOTE-raw", "guide=gpf | walk=plain", "guide=gpf | walk=aligned | guard", "guide=sig | walk=aligned | guard"]
 p = dd.pivot_table(index=["dataset", "IR"], columns="m2", values="f1", aggfunc="mean")
 if all(s in p.columns for s in sel):
@@ -62,12 +80,12 @@ print("\n--- (3) feature-budget sensitivity (8 pilot datasets, rf) ---")
 frames = []
 for n in [32, 64, 128]:
     try:
-        x = pd.read_csv(f"results/results_v08_nsel{n}.csv") if n != 64 else base[base.clf == "rf"]
+        x = pd.read_csv(NSEL[n]) if n != 64 else base[base.clf == "rf"]
         x = x[x.clf == "rf"] if "clf" in x.columns else x
         frames.append((n, x))
     except Exception:
         pass
-pilot = set(pd.read_csv("results/results_v08_nsel32.csv").dataset.unique()) if len(frames) else set()
+pilot = set(pd.read_csv(NSEL[32]).dataset.unique()) if len(frames) else set()
 for n, x in frames:
     x = x[x.dataset.isin(pilot)]
     cols = [m for m in M if m in set(x.method)]
@@ -81,3 +99,30 @@ for n, x in frames:
     if "guide=sig | walk=aligned" in cols:
         out += f"   ΔF1(sig/aligned−SMOTE)={p['guide=sig | walk=aligned'].mean()-p['SMOTE-raw'].mean():+.3f}"
     print(out)
+
+# ---------- 4. the trimming variant of the guard ----------
+print("\n--- (4) trimming variant vs shrinking (rf) ---")
+if not os.path.exists(TRIM):
+    print(f"  {TRIM} not found -- skipped.")
+else:
+    t = pd.read_csv(TRIM)
+    t = t[t.clf == "rf"] if "clf" in t.columns else t
+    t["base_m"] = t.method.str.replace(r" \| guard-(trim|shrink)$", "", regex=True)
+    tb = t[t.guard.fillna(0) == 0][["dataset", "seed", "IR", "method", "f1"]]
+    for mode in ("trim", "shrink"):
+        tg = t[(t.guard.fillna(0) == 1) & (t.guard_mode == mode)]
+        if not len(tg):
+            continue
+        j2 = tg.merge(tb, left_on=["dataset", "seed", "IR", "base_m"],
+                      right_on=["dataset", "seed", "IR", "method"], suffixes=("_g", "_b"))
+        fired = j2[j2.guard_fired == 1]
+        if len(fired) > 5:
+            print(f"  {mode:6s}: fired on {len(fired)} cells / {fired.dataset.nunique()} datasets;"
+                  f"  dF1 = {(fired.f1_g - fired.f1_b).mean():+.3f}"
+                  f"  (p = {wilcoxon(fired.f1_g, fired.f1_b).pvalue:.1e})")
+        else:
+            print(f"  {mode:6s}: only {len(fired)} fired cells -- too few to test.")
+    print("  The paper reports trim = -0.014 (p = 6e-4) over the 65 cells where it fires, on")
+    print("  eight of the nine datasets it was run on:")
+    print("  refilling the quota by resampling the survivors reintroduces duplication, so trimming")
+    print("  is worse than shrinking. A positive number here would contradict the manuscript.")

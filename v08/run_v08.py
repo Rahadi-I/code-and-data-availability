@@ -10,7 +10,19 @@ Every row carries `clf` (rf | ridge) and `n_select`, so one CSV answers three qu
 env: OUT, SEEDS, CELLS, CLFS, N_SELECT, GUARD (1 = also emit guarded variants of the aligned cells)
 """
 import os, sys, time, numpy as np, pandas as pd
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Find the folder holding the shared modules. It is the parent of this one when v08/ sits inside
+# the code folder, a sibling named code/ in the working tree, and a sibling named src/ in the
+# published repository -- so look for the file rather than assuming a layout.
+_here = os.path.dirname(os.path.abspath(__file__))
+_up = os.path.dirname(_here)
+for _c in (_up, os.path.join(_up, "code"), os.path.join(_up, "src"), _here):
+    if os.path.isfile(os.path.join(_c, "run_experiment.py")):
+        sys.path.insert(0, _c)
+        break
+else:
+    sys.exit(f"run_experiment.py not found next to {_here}. Expected it in the code/ or src/ "
+             f"folder beside v08/, or in v08/'s parent.")
 os.environ.setdefault("SPLIT", "standard")
 import run_experiment as R
 from data import load_binary

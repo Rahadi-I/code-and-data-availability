@@ -87,7 +87,7 @@ The guard works as a mechanism and fails as a remedy.
 * admissibility improves: MMD to held-out minority **−0.062** on fired cells, **−0.154** on EthanolConcentration
 * minority F1: **+0.006, p = 0.49** — no change
 * the four losses are untouched: EthanolConcentration −0.11 → −0.10; guarded sig/aligned rank 1.98 vs 1.92 unguarded
-* the trimming variant is worse: **−0.014, p = 6e-4** over 65 fired cells on 9 datasets (refilling the quota by resampling survivors reintroduces duplication)
+* the trimming variant is worse: **−0.014, p = 6e-4** over 65 fired cells on 8 of the 9 datasets it was run on (refilling the quota by resampling survivors reintroduces duplication)
 
 **Revised diagnosis.** Over-dispersion in the range these walks produce is not what costs accuracy, and
 neither is admissibility — the guard improves it without moving F1. Both statistics separate *synthesis
